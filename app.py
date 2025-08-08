@@ -1,39 +1,57 @@
-# import requests
-# import streamlit as st
-
-# st.title("NLP Timesheet Q&A")
-
-# user_question = st.text_input("Ask your timesheet question:")
-
-# if user_question:
-#     payload = {
-#         "model": "gemma3",
-#         "prompt": user_question
-#     }
-
-#     response = requests.post("http://localhost:11434/api/generate", json=payload)
-#     result = response.json()["response"]
-
-#     st.write(result)
-
-
 import streamlit as st
 import pandas as pd
- 
-# Load the CSV
-# df = pd.read_csv('timesheet.csv')
 
+# Load the CSV
 df = pd.read_csv('timesheet.csv', encoding='ISO-8859-1')
 
- 
-# Preview the data
-st.title("Timesheet Dashboard")
-st.write("Here's a quick look at the raw timesheet data:")
-st.dataframe(df)
- 
-# Example graph: Total hours by employee
-if 'Employee' in df.columns and 'Hours' in df.columns:
-    hours_by_emp = df.groupby('Employee')['Hours'].sum().reset_index()
-    st.bar_chart(hours_by_emp.set_index('Employee'))
-else:
-    st.warning("Please make sure your CSV has 'Employee' and 'Hours' columns.")
+# Convert daily_log from 'hh:mm' format to 'hh:mm:ss'
+def convert_to_hms(value):
+    try:
+        # Ensure that the value is a string (if it's a float, convert to string)
+        value = str(value)
+        
+        # Check if the value contains a colon, which indicates a time format
+        if ':' in value:
+            return f"{value}:00"  # Convert 'hh:mm' to 'hh:mm:ss'
+        return value  # Return as is if no colon
+    except ValueError:
+        return value  # If conversion fails, return the original value
+
+# Apply the conversion to daily_log
+df['daily_log'] = df['daily_log'].apply(convert_to_hms)
+
+# Ensure 'user' and 'daily_log' columns exist before processing
+if 'user' in df.columns and 'daily_log' in df.columns:
+    # Convert to timedelta (hours in total)
+    df['daily_log'] = pd.to_timedelta(df['daily_log'], errors='coerce').dt.total_seconds() / 3600
+
+    # Group by user and sum the hours
+    hours_by_user = df.groupby('user')['daily_log'].sum().reset_index()
+
+    # Display the bar chart for total hours by user
+    st.title("Timesheet Dashboard")
+    st.subheader("Total Hours by Employee")
+    st.bar_chart(data=hours_by_user, x='user', y='daily_log')
+
+# Total Hours Logged Per Day (Line chart)
+df['date'] = pd.to_datetime(df['date'])  # Convert date to datetime
+
+st.subheader("Total Hours Logged Per Day")
+hours_by_date = df.groupby('date')['daily_log'].sum().reset_index()
+st.line_chart(data=hours_by_date, x='date', y='daily_log')
+
+# Hours Spent per Task Type (Bar chart)
+st.subheader("Hours Spent per Task Type")
+task_hours = df.groupby('task_type')['daily_log'].sum().sort_values(ascending=False).reset_index()
+st.bar_chart(data=task_hours, x='task_type', y='daily_log')
+
+# Sidebar Filters
+st.sidebar.header("Filters")
+selected_user = st.sidebar.selectbox("Select a User", options=df['user'].unique())
+
+# Filter the dataframe by the selected user
+filtered_df = df[df['user'] == selected_user]
+
+# Display filtered data for the selected user
+st.write(f"Entries for {selected_user}:")
+st.dataframe(filtered_df)
